@@ -1,0 +1,932 @@
+program RUNME;
+{$DEFINE SMART}
+{$DEFINE WALKER}
+{$i AeroLib/AeroLib.Simba}
+
+type TBar = record
+  bar: TItem;
+  primaryOre: TItem;
+  primaryOreAmount: Integer;
+  primaryOrePrice: Integer;
+  secondaryOre: TItem;
+  secondaryOreAmount: Integer;
+  secondaryOrePrice: Integer;
+  oresPerBar: Integer;
+  furnaceBar: TColEx;
+  xp: Double;
+  statsID: string;
+  numberSmelted: Integer;
+  lastNumberSmelted: Integer;
+  price: Integer;
+  revenue: Integer;
+  lastRevenue: Integer;
+  barTimer: Timer;
+  level: Integer;
+end;
+
+type TCoalBag = record
+  bag: TItem;
+  shouldUse: Boolean;
+  coalInside: Integer;
+end;
+
+type TWithdraw = record
+  itemOne: Integer;
+  itemTwo: Integer;
+end;
+
+{$SCOPEDENUMS ON}
+type TLoggerLevel = (DEBUG, STATUS, WARN, ERROR, FATAL);
+{$SCOPEDENUMS OFF}
+
+type TBreakHandlerCustom = record
+  timer: Timer;
+  breakLength: Integer;
+  breakAfter: Integer;
+end;
+
+type TFurnace = record
+  path: TPointArray;
+  furnace: TMSObject;
+end;
+
+type TBank = record
+  path: TPointArray;
+  banker: TMSObject;
+end;
+
+type TLocation = record
+  name: string;
+  furnace: TFurnace;
+  bank: TBank;
+end;
+
+type TLogger = record
+  name: string;
+  level: TLoggerLevel;
+end;
+
+const
+  StatsPath = AppPath + 'Stats\';
+  StatsFile = 'Info.txt';
+  StatsAbsolutePath = StatsPath + StatsFile;
+
+type TStat = record
+  name: string;
+  Value: Integer;
+end;
+
+type TStatsUser = record
+  ID: string;
+  Password: string;
+  ScriptID: string;
+  Timer: Integer;
+end;
+
+type TStats = record
+  User: TStatsUser;
+  Stats: Array of TStat;
+end;
+
+procedure TStats.Setup(ScriptID : string);
+var
+  ID, Password, StatsFilepath: String;
+begin
+  if (not DirectoryExists(StatsPath)) then
+  begin
+    ForceDirectories(StatsPath);
+    WriteINI('General', 'Stats_ID', '', StatsAbsolutePath);
+    writeINI('General', 'Stats_Pass', '', StatsAbsolutePath);
+  end;
+
+  ID := ReadINI('General', 'Stats_ID', StatsAbsolutePath);
+  Password := ReadINI('General', 'Stats_Pass', StatsAbsolutePath);
+
+  if ID = '' then
+  begin
+    case MessageBox('No Stats ID found, would you like to register?', 'Stats', 1) of
+      1: OpenWebPage('http://stats.grats.pw/reg.php');
+    end;
+  end;
+
+  Self.User := [ID, Password, ScriptID, GetSystemTime()];
+end;
+
+procedure TStats.InitializeVariable(name: string; Value: Integer);
+var
+  Size: Integer;
+begin
+  Size := Length(Self.Stats);
+  SetArrayLength(Self.Stats, Size + 1);
+  Self.Stats[Size].name := LowerCase(name);
+  Self.Stats[Size].Value := Value;
+end;
+
+procedure TStats.SetVariable(name: string; Value: Integer);
+var
+  Stat: Integer;
+begin
+  name := LowerCase(name);
+    for Stat := 0 to High(Self.Stats) do
+    begin
+      if (name = Self.Stats[Stat].name) then
+      begin
+        Self.Stats[Stat].Value := Value;
+        exit();
+      end;
+    end;
+  InitializeVariable(name, Value);
+end;
+
+procedure TStats.IncreaseVariable(name: string; Value: Integer);
+var
+  Stat: Integer;
+begin
+  name := LowerCase(name);
+  for Stat := 0 to High(Self.Stats) do
+  begin
+    if (name = Self.Stats[Stat].name) then
+      begin
+        Self.Stats[Stat].Value := Self.Stats[Stat].Value + Value;
+        exit();
+      end;
+  end;
+  InitializeVariable(name, Value);
+end;
+
+function TStats.Commit: Boolean;
+var
+  Response: string;
+  Client, Stat, WorkedTime, ExtraTime: Integer;
+begin
+  ExtraTime := GetSystemTime() - User.Timer;
+  WorkedTime := ExtraTime div 60000;
+
+  if WorkedTime < 5 then exit();
+  ExtraTime := ExtraTime - (WorkedTime * 60000);
+
+  Self.User.Timer := GetSystemTime - ExtraTime;
+
+  Client := InitializeHTTPClient(False);
+  ClearPostData(Client);
+
+  if (Self.User.ID = '') then
+  begin
+    Self.User.ID := '5';
+    Self.User.Password := 'anon1337';
+  end;
+
+  AddPostVariable(Client, 'user_id', Self.User.ID);
+  AddPostVariable(Client, 'password', Self.User.Password);
+  AddPostVariable(Client, 'script_id', Self.User.ScriptID);
+  AddPostVariable(Client, 'timeamount', toStr(WorkedTime));
+
+   for Stat := 0 to High(Self.Stats) do
+    begin
+      if (Self.Stats[Stat].Value > 0) then
+        AddPostVariable(Client, Self.Stats[Stat].name, toStr(Min(Self.Stats[Stat].Value, 30000))); //Capped at 30000
+    end;
+
+  Response := PostHTTPPageEx(Client, 'http://stats.grats.pw/POST.php');
+  FreeHTTPClient(Client);
+
+  case StrToIntDef(ExtractFromStr(Response, Numbers), -1) of
+    42: Result := True;
+    9001: writeLn('Stats: Invalid user ID/Password.');
+    1337: writeLn('Stats: Invalid Script ID.');
+    255, 496: writeLn('Stats: Committing too fast; shame on you!');
+    else
+      writeLn('Stats: No Return Code');
+  end;
+
+  if Result then
+  begin
+      for Stat := 0 to High(Self.Stats) do
+      begin
+          if (Self.Stats[Stat].Value > 0) then
+            Self.Stats[Stat].Value := 0; //Clear for next commit
+      end;
+  end;
+end;
+
+procedure TLogger.debug(text: string; args: TVariantArray = [])
+begin
+  self.log(TLoggerLevel.DEBUG, text, args);
+end;
+
+procedure TLogger.status(text: string; args: TVariantArray = [])
+begin
+  self.log(TLoggerLevel.STATUS, text, args);
+end;
+
+procedure TLogger.warn(text: string; args: TVariantArray = [])
+begin
+  self.log(TLoggerLevel.WARN, text, args);
+end;
+
+procedure TLogger.error(text: string; args: TVariantArray = [])
+begin
+  self.log(TLoggerLevel.ERROR, text, args);
+end;
+
+procedure TLogger.fatal(text: string; args: TVariantArray = [])
+begin
+  self.log(TLoggerLevel.FATAL, text, args);
+end;
+
+procedure TLogger.init(name: String; level: TLoggerLevel = TLoggerLevel.status);
+begin
+  self.name := name;
+  self.level := level;
+end;
+
+procedure TLogger.log(level: TLoggerLevel; text: string; args: TVariantArray = []);
+begin
+  if level < self.level then
+    exit();
+  writeLn('[', theTime(), '] [', self.name, '] [', level, '] ',
+    format(text, args));
+  if level = TLoggerLevel.fatal then
+    TerminateScript;
+end;
+
+const
+  COPPER_ORE := 0;
+  TIN_ORE := 1;
+  IRON_ORE := 2;
+  SILVER_ORE :=3;
+  COAL := 4;
+  GOLD_ORE := 5;
+  MITHRIL_ORE := 6;
+  ADAMANTITE_ORE := 7;
+  RUNITE_ORE := 8;
+
+  BRONZE_BAR := 0;
+  IRON_BAR := 1;
+  SILVER_BAR := 2;
+  STEEL_BAR := 3;
+  GOLD_BAR := 4;
+  MITHRIL_BAR := 5;
+  ADAMANTITE_BAR := 6;
+  RUNITE_BAR := 7;
+  USE_COAL_BAG := True;
+  HAVE_GOLD_SMITH_GAUNLETS := True;
+
+  USEBREAKS = True;
+
+  BREAK_AFTER_HOURS_MIN = 2;
+  BREAK_AFTER_HOURS_MAX = 3;
+  BREAK_FOR_MINUTES_MIN = 63;
+  BREAK_FOR_MINUTES_MAX = 97;
+
+var
+  ores: array[0..8] of TItem :=
+  [['Copper ore', DTMFromString('mbQAAAHicY2VgYHgLxHeB+CUQfwXi30AcwwjBmUCcDMShQHy+3Bgow4iCWYEkOmbEgsEAALceCCI=')],
+  ['Tin ore', DTMFromString('m1gAAAHic42JgYJjPzMDQC8XTgHgOEC8H4pVAvACIZwHxDCCOYmRgiAHiRCBOBuJ0II4H4kggDgfiMCi/u6kRaCojQcyKR5YJCRM2CYIRAACrUQuX')],
+  ['Iron ore', DTMFromString('mbQAAAHicY2VgYBAAYjkglgBiHgYIYIfSfEAsAuV76SkCSUYUzAok0TEjFgwGAFu3AUM=')],
+  ['Silver ore', DTMFromString('mbQAAAHicY2VgYBBggAAeIJYAYjkgZodiESDmg8ovXboRSDKiYFYgiY4ZsWAwAACy1gKl')],
+  ['Coal', DTMFromString('mbQAAAHicY2VgYBBggAAeIJYAYjkgZodiESDmg8qbmSkDSUYUzAok0TEjFgwGAFf1ATk=')],
+  ['Gold ore', DTMFromString('mbQAAAHicY2VgYBBggAAeIJYAYjkgZodiESDmg8pfXC0JJBlRMCuQRMeMWDAYAACaGgI/')],
+  ['Mithril ore', DTMFromString('mbQAAAHicY2VgYBBggAAeIJYAYjkgZodiESDmg8r7+hYASUYUzAok0TEjFgwGAHZ/AbQ=')],
+  ['Adamantite ore', DTMFromString('mbQAAAHicY2VgYBBggAAeIJYAYjkgZodiESDmg8r7pwQCSUYUzAok0TEjFgwGAHUgAa4=')],
+  ['Runite ore', DTMFromString('mrAAAAHic42BgYNjBzMCwCoiXA/FmID4AxMeAeA+U38DIwFANxB1A3Aela4C4BIiLgTggqxRoCiNODDQCL2DGqxsBAOktCxk=')]];
+
+  coalBag: TCoalBag := [['Coal bag', DTMFromString('mggAAAHicY2NgYOBjgAApIBYHYgEgZoGKsQIxGxBzADEXEHMCcaCXF5BkxMCsDNgBpkoIhgAAfg4BdQ==')], USE_COAL_BAG, 0];
+
+  walker: TRSWalker;
+  bars: array[0..7] of TBar;
+  locations: array[0..0] of TLocation;
+  currentBar: ^TBar;
+  currentLocation: TLocation;
+  randomStartAdd, randomEndAdd: Integer;
+  lastXpGained: Double;
+  smithinglastXpGained: Double;
+  logger: TLogger;
+  inGameTimer, totalBreakTimer: Timer;
+  customBreakHandler: TBreakHandlerCustom;
+  myStats: TStats;
+
+function randomRangeCustom(startTime: Integer; endTime: Integer): Integer;
+begin
+  exit(randomStartAdd + randomRange(startTime, endTime) + randomEndAdd);
+end;
+
+procedure endScript();
+begin
+  if isBankOpen() then
+    closeInterface();
+  while (isLoggedIn()) do
+    logoutPlayer();
+  TerminateScript();
+end;
+
+procedure tryLogin();
+var
+  timer: Timer;
+  randomTime: Integer;
+begin
+  if (isLoggedIn()) then
+    exit();
+  timer.start();
+  randomTime := randomRangeCustom(120000, 150000);
+  while (not isLoggedIn()) do
+  begin
+    loginPlayer(false);
+    wait(randomRangeCustom(1000, 1200));
+    if (timer.timeElapsed > RandomTime) then
+    begin
+      logger.fatal('Unable to login');
+      endScript();
+    end;
+  end;
+  setAngle(ANGLE_HIGH);
+  compassMovement(0, 360, False);
+end;
+
+procedure TBar.log();
+var
+  timeElapsed: Integer;
+  profit: Integer;
+begin
+  timeElapsed := self.barTimer.timeElapsed();
+  if (timeElapsed > 0) then
+  begin
+    logger.status(self.bar.Name + ' Bars Smeleted ' + toStr(self.numberSmelted));
+    logger.status(self.bar.Name + ' Bars Per Hour ' + toStr(self.numberSmelted / (timeElapsed / 3600000)));
+
+    self.revenue := self.numberSmelted * self.price;
+    logger.status(self.bar.Name + ' Revenue ' +  toStr(self.revenue));
+    logger.status(self.bar.Name + ' Revenue per hour ' + toStr(self.revenue / (timeElapsed / 3600000)));
+
+    profit := (self.revenue - (self.numberSmelted * self.primaryOreAmount * self.primaryOrePrice + self.numberSmelted * self.secondaryOreAmount * self.secondaryOrePrice));
+    logger.status(self.bar.Name + ' Profit ' + toStr(profit));
+    logger.status(self.bar.Name + ' Profit per hour ' + toStr(profit / (timeElapsed / 3600000)));
+
+    myStats.IncreaseVariable('44', self.revenue - self.lastRevenue);
+    myStats.IncreaseVariable(self.statsID, self.numberSmelted - self.lastNumberSmelted);
+    self.lastRevenue := self.revenue;
+    self.lastNumberSmelted := self.numberSmelted;
+  end;
+end;
+
+procedure logBars();
+var
+  bar: Integer;
+begin
+  for bar := 0 to high(bars) do
+  begin
+    bars[bar].log();
+  end
+end;
+
+procedure TBar.updatePrice();
+begin
+  self.price := getPrice(self.bar.Name).sell;
+  self.primaryOrePrice := getPrice(self.primaryOre.Name).buy;
+  self.secondaryOrePrice := getPrice(self.secondaryOre.Name).buy;
+end;
+
+procedure updatePrices();
+var
+  bar: Integer;
+begin
+  for bar := 0 to high(bars) do
+    bars[bar].updatePrice();
+end;
+
+procedure progressReportCustom();
+begin
+  logger.status('XP Gained ' + toStr(smithinglastXpGained));
+  logger.status('XP per hour ' + toStr(smithinglastXpGained / (inGameTimer.timeElapsed() / 3600000)));
+  logger.status('Total time in game: ' + msToTime(inGameTimer.timeElapsed(), 3));
+  logger.status('Total time spent breaking: ' + toStr(msToTime(totalBreakTimer.timeElapsed(), 3)));
+  myStats.IncreaseVariable('69', floor(smithinglastXpGained - lastXpGained));
+  logBars();
+  myStats.Commit();
+  lastXpGained := smithinglastXpGained;
+end;
+
+procedure TBreakHandlerCustom.randomBreakTime();
+begin
+  self.breakAfter := (randomRange(BREAK_AFTER_HOURS_MIN, BREAK_AFTER_HOURS_MAX) * 3600000) + randomRange(2000, 3500000);
+  logger.status('BreakAfter = ' + msToTime(self.BreakAfter, 3));
+  self.breakLength := (randomRange(BREAK_FOR_MINUTES_MIN, BREAK_FOR_MINUTES_MAX) * 60000) + randomRange(2000, 59000);
+  logger.status('BreakLength = ' + msToTime(self.breakLength, 3));
+  self.timer.restart();
+end;
+
+procedure breakHandlerCustom();
+var
+  breakTimer: Timer;
+begin
+  logger.status('Starting Break Handler');
+  while (isLoggedIn()) do
+    logoutPlayer();
+  breakTimer.restart();
+  inGameTimer.pause();
+  totalBreakTimer.start();
+  currentBar^.barTimer.pause();
+  while (breakTimer.timeElapsed() < customBreakHandler.BreakLength) do
+  begin
+    logger.status('Break handler active');
+    logger.status('TimeRunning: ' + msToTime(getTimeRunning(), 3));
+    logger.status('Time left until break is done: ' + msToTime((customBreakHandler.BreakLength - breakTimer.timeElapsed()), 3));
+    logger.status('Total time spent breaking: ' + msToTime(totalBreakTimer.timeElapsed(), 3));
+    sleep(5000);
+    clearDebug();
+  end;
+  logger.status('Break Over');
+  breakTimer.Pause();
+  totalBreakTimer.Pause();
+  inGameTimer.Start();
+  currentBar^.barTimer.start();
+  Me.active := True;
+  tryLogin();
+  customBreakHandler.RandomBreakTime();
+end;
+
+procedure randomWait(waitTime: Integer);
+var
+  randomAddWaitTime: Integer;
+begin
+  if (not isLoggedIn()) then
+    tryLogin();
+  randomAddWaitTime := floor(waitTime / 5);
+  wait(waitTime + randomStartAdd + Random(randomAddWaitTime) + randomEndAdd);
+end;
+
+procedure initBars();
+begin
+  bars[BRONZE_BAR].bar := ['Copper bar',  DTMFromString('mbQAAAHicY2VgYOAFYmkgFgViHgZUwAGVZwdibyslIMmIglkZMAEjFgwGAFLOASA=')];
+  bars[BRONZE_BAR].primaryOre := ores[COPPER_ORE];
+  bars[BRONZE_BAR].primaryOreAmount := 1;
+  bars[BRONZE_BAR].secondaryOre := ores[TIN_ORE];
+  bars[BRONZE_BAR].secondaryOreAmount := 1;
+  bars[BRONZE_BAR].oresPerBar := 2;
+  bars[BRONZE_BAR].furnaceBar := createCol(1847874, 10, 0.07, 0.41);
+  bars[BRONZE_BAR].XP := 6.25;
+  bars[BRONZE_BAR].statsID := '46';
+  bars[BRONZE_BAR].level := 1;
+
+  bars[IRON_BAR].bar := ['Iron bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSxnp6QNWMKJiFARMwYsFgAACyswUx')];
+  bars[IRON_BAR].primaryOre := ores[IRON_ORE];
+  bars[IRON_BAR].primaryOreAmount := 1;
+  bars[IRON_BAR].secondaryOre := ores[IRON_ORE];
+  bars[IRON_BAR].secondaryOreAmount := 0;
+  bars[IRON_BAR].oresPerBar := 1;
+  bars[IRON_BAR].furnaceBar := createCol(5592669, 5, 0.42, 0.09);
+  bars[IRON_BAR].XP := 12.5;
+  bars[IRON_BAR].statsID := '36';
+  bars[IRON_BAR].level := 15;
+
+  bars[SILVER_BAR].bar := ['Silver bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSK1ZsAapmRMEsDJiAEQsGAwAP8Qam')];
+  bars[SILVER_BAR].primaryOre := ores[SILVER_ORE];
+  bars[SILVER_BAR].primaryOreAmount := 1;
+  bars[SILVER_BAR].secondaryOre := ores[SILVER_ORE];
+  bars[SILVER_BAR].secondaryOreAmount := 0;
+  bars[SILVER_BAR].oresPerBar := 1;
+  bars[SILVER_BAR].furnaceBar := createCol(8615541, 21, 0.06, 0.08);
+  bars[SILVER_BAR].XP := 13.7;
+  bars[SILVER_BAR].statsID := '47';
+  bars[SILVER_BAR].level := 20;
+
+  bars[STEEL_BAR].bar := ['Steel bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSE9ragKoZUTALAyZgxILBAAD1+AY+')];
+  bars[STEEL_BAR].primaryOre := ores[IRON_ORE];
+  bars[STEEL_BAR].primaryOreAmount := 1;
+  bars[STEEL_BAR].secondaryOre := ores[COAL];
+  bars[STEEL_BAR].secondaryOreAmount := 2;
+  bars[STEEL_BAR].oresPerBar := 3;
+  bars[STEEL_BAR].furnaceBar := createCol(8158599, 7, 0.26, 0.08);
+  bars[STEEL_BAR].XP := 17.5;
+  bars[STEEL_BAR].level := 30;
+
+  bars[GOLD_BAR].bar := ['Gold bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSNzZIAVUzomAWBkzAiAWDAQD4LAZE')];
+  bars[GOLD_BAR].primaryOre := ores[GOLD_ORE];
+  bars[GOLD_BAR].primaryOreAmount := 1;
+  bars[GOLD_BAR].secondaryOre := ores[GOLD_ORE];
+  bars[GOLD_BAR].secondaryOreAmount := 0;
+  bars[GOLD_BAR].oresPerBar := 1;
+  bars[GOLD_BAR].furnaceBar := createCol(1146780, 16, 0.01, 0.21);
+  bars[GOLD_BAR].level := 40;
+  if (HAVE_GOLD_SMITH_GAUNLETS) then
+    bars[GOLD_BAR].XP := 56.2
+  else
+    bars[GOLD_BAR].XP := 22.5;
+
+  bars[MITHRIL_BAR].bar := ['Mithril bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSPj4FQNWMKJiFARMwYsFgAADQygWq')];
+  bars[MITHRIL_BAR].primaryOre := ores[MITHRIL_ORE];
+  bars[MITHRIL_BAR].primaryOreAmount := 1;
+  bars[MITHRIL_BAR].secondaryOre := ores[COAL];
+  bars[MITHRIL_BAR].secondaryOreAmount := 4;
+  bars[MITHRIL_BAR].oresPerBar := 5;
+  bars[MITHRIL_BAR].furnaceBar := createCol(5388600, 12, 0.05, 0.11);
+  bars[MITHRIL_BAR].XP := 30;
+  bars[MITHRIL_BAR].level := 50;
+
+  bars[ADAMANTITE_BAR].bar := ['Adamantite bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSASkBQNWMKJiFARMwYsFgAADP7gWm')];
+  bars[ADAMANTITE_BAR].primaryOre := ores[ADAMANTITE_ORE];
+  bars[ADAMANTITE_BAR].primaryOreAmount := 1;
+  bars[ADAMANTITE_BAR].secondaryOre := ores[COAL];
+  bars[ADAMANTITE_BAR].secondaryOreAmount := 6;
+  bars[ADAMANTITE_BAR].oresPerBar := 7;
+  bars[ADAMANTITE_BAR].furnaceBar := createCol(3885115, 12, 0, 0.19);
+  bars[ADAMANTITE_BAR].XP := 37.5;
+  bars[ADAMANTITE_BAR].level := 70;
+
+  bars[RUNITE_BAR].bar := ['Runite bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSgbkVQNWMKJiFARMwYsFgAADcRwXY')];
+  bars[RUNITE_BAR].primaryOre := ores[RUNITE_ORE];
+  bars[RUNITE_BAR].primaryOreAmount := 1;
+  bars[RUNITE_BAR].secondaryOre := ores[COAL];
+  bars[RUNITE_BAR].secondaryOreAmount := 8;
+  bars[RUNITE_BAR].oresPerBar := 9;
+  bars[RUNITE_BAR].furnaceBar := createCol(5656378, 14, 0.07, 0.15);
+  bars[RUNITE_BAR].XP := 50;
+  bars[RUNITE_BAR].level := 85;
+end;
+
+procedure initLocations();
+begin
+  locations[0].name := 'Edgeville';
+  locations[0].bank.banker.create('Edgeville Banker', ['booth'], [createCol(5660003, 6, 0.63, 0.79)], [createCol(606550, 3, 0.09, 1.09)], 50, 70, 70, 30);
+  locations[0].bank.path := [Point(4193, 2469)];
+  locations[0].furnace.furnace.create('Edgeville Furnace', ['Smelt'], [createCol(3031909, 5, 0.10, 0.32)], [createCol(7368824, 5, 0.37, 0.20)], 25, 30, 30, 30);
+  locations[0].furnace.path := [Point(4242, 2452)];
+end;
+
+function TBar.numberToSmelt(): TWithdraw;
+var
+  maxAmount, maxSpace: Integer;
+  primaryInBank, secondaryInBank: Integer;
+  primaryCanSmelt, secondaryCanSmelt: Integer;
+  maxCanSmelt: Integer;
+  enoughPrimary, enoughSecondary: Boolean;
+begin
+  logger.status('Checking number to smelt');
+  primaryInBank := self.primaryOre.getAmount(false);
+  secondaryInBank := (self.secondaryOre.getAmount(false) + coalBag.coalInside);
+  if (coalBag.shouldUse) then
+    maxSpace := (27 + coalBag.coalInside)
+  else
+    maxSpace := 28;
+  maxAmount := floor(maxSpace / self.oresPerBar);
+  if (primaryInBank >= maxAmount) then
+    primaryCanSmelt := maxAmount
+  else
+    primaryCanSmelt := primaryInBank;
+  if (secondaryInBank >= maxAmount * self.secondaryOreAmount ) then
+    secondaryCanSmelt := maxAmount
+  else
+    secondaryCanSmelt := floor(secondaryInBank / self.secondaryOreAmount);
+  if (primaryCanSmelt <= secondaryCanSmelt) then
+    maxCanSmelt := primaryCanSmelt
+  else
+    maxCanSmelt := secondaryCanSmelt;
+  if (maxCanSmelt = 0) then
+  begin
+    Result := [0, 0];
+  end;
+  Result := [maxCanSmelt, ((maxCanSmelt * self.secondaryOreAmount) - (coalBag.coalInside)) ];
+end;
+
+procedure switchOre();
+var
+  bar: Integer;
+  playerLevel: Integer;
+begin
+  playerLevel := getSkillCurrentLevel(SKILL_SMITHING);
+  for bar := 0 to high(bars) do
+  begin
+    if ((playerLevel >= bars[bar].level) and (bars[bar].numberToSmelt().itemOne > 0)) then
+    begin
+      currentBar := @bars[bar];
+      logger.status('Switched to ' + currentBar^.bar.Name);
+      exit();
+    end;
+  end;
+  logger.status('No more bars to smelt logging out');
+end;
+
+procedure TCoalBag.checkStatus();
+var
+  textPoint: TPoint;
+  numberOfCoal: Integer;
+  lastChatLine: String;
+  numbers: String;
+begin
+  if (self.shouldUse) then
+  begin
+    if (self.bag.interact('Check')) then
+    begin
+	    randomWait(1000);
+	    clickContinue(true);
+	    randomWait(1000);
+	    lastChatLine := getBlackChatMessage();
+	    if (Pos('empty', lastChatLine) > 0) then
+	      self.coalInside := 0
+	    else if (Pos('one piece', lastChatLine) > 0) then
+	      self.coalInside := 1
+	    else
+	      self.coalInside := strToInt(getNumbers(lastChatLine));
+    end else
+    begin
+      logger.fatal('Coal bag is not in inventory, logging out');
+      endScript();
+    end;
+  end;
+end;
+
+procedure TBar.waitWhileSmelting();
+var
+  timer: Timer;
+  randomTime: Integer;
+  currentBarCount, newBarCount, startingBarCount, barsSmelted: Integer;
+  startingSecondary: Integer;
+  endingSecondary: Integer;
+begin
+  logger.status('Waiting while smelting');
+  randomTime := randomRangeCustom(5500, 6000);
+  currentBarCount := self.bar.getAmount(true);
+  startingBarCount := currentBarCount;
+  startingSecondary := self.secondaryOre.getAmount(true);
+  timer.start;
+  while (timer.timeElapsed < randomTime) do
+  begin
+    newBarCount := self.bar.getAmount(true);
+    if (newBarCount > currentBarCount) then
+    begin
+      timer.restart();
+      currentBarCount := newBarCount;
+    end;
+      randomWait(100);
+  end;
+  barsSmelted := currentBarCount - startingBarCount;
+  if (coalBag.shouldUse) then
+  begin
+    endingSecondary := self.secondaryOre.getAmount(true);
+    dec(coalBag.coalInside, (((barsSmelted * self.secondaryOreAmount) - (startingSecondary - endingSecondary))));
+  end;
+  if ((Pos('don', getBlackChatMessage()) > 0)) then
+    coalBag.checkStatus();
+  inc(self.numberSmelted, barsSmelted);
+  smithinglastXpGained := (smithinglastXpGained + (self.bar.getAmount(false) * self.XP));
+end;
+
+procedure TFurnace.walk();
+var
+  randomTime: Integer;
+  furnaceTimer: Timer;
+begin
+  randomTime := randomRangeCustom(60000, 120000);
+  furnaceTimer.start();
+  while (furnaceTimer.timeElapsed < randomTime) do
+  begin
+    if(self.furnace.find()) then
+    begin
+      logger.status('At furnace');
+      exit();
+    end else
+    begin
+      logger.status('Walking to furnace');
+      if (length(self.path) > 1) then
+        walker.walkPath(self.path, true)
+      else
+        walker.blindWalk(self.path[0]);
+    randomWait(1000);
+    end;
+  end;
+  logger.fatal('Unable to find furnace, logging out');
+  endScript();
+end;
+
+procedure TBank.walk();
+var
+  randomTime: Integer;
+  bankTimer: Timer;
+begin
+  randomTime := randomRangeCustom(60000, 120000);
+  bankTimer.start();
+  while (bankTimer.timeElapsed < randomTime) do
+  begin
+    if (self.banker.find()) then
+    begin
+      logger.status('At Bank');
+      exit();
+    end else
+    begin
+      logger.status('Walking to bank');
+      if (length(self.path) > 1) then
+        walker.walkPath(self.path, true)
+      else
+        walker.blindWalk(self.path[0]);
+    randomWait(1000);
+    end;
+  end;
+  logger.fatal('Unable to find bank, logging out');
+  endScript();
+end;
+
+function TBar.canSmelt(): Boolean;
+var
+  oreAmount: Integer;
+  haveOreInInventory, haveEnoughOreInInventory: Boolean
+begin
+  logger.status('Checking if can smelt');
+  oreAmount := self.primaryOre.getAmount(false);
+  haveOreInInventory := (oreAmount > 0);
+  haveEnoughOreInInventory := ((oreAmount * self.secondaryOreAmount) <= (self.secondaryOre.getAmount(true) + coalBag.coalInside));
+  logger.debug(toStr(coalBag.coalInside));
+  result := (haveOreInInventory and haveEnoughOreInInventory);
+end;
+
+procedure TLocation.Smelt();
+var
+  furnaceBarPoints: TPointArray;
+  furnaceBarBox: TBox;
+  textPoint: TPoint;
+  furnacePoint: TPoint;
+  primaryOre: Integer;
+begin
+  self.furnace.walk();
+  if (self.furnace.furnace.find(furnacePoint)) then
+  begin
+    mouse(furnacePoint, 5, 5, MOUSE_LEFT);
+    if (didClick(true, 400)) then
+    begin
+      randomWait(500);
+      if waitFindtext(textPoint, 'would you like to smelt', 'CharsNPC07', AREA_CB, 200, 2500) then
+      begin
+        currentBar^.furnaceBar.findAllIn(AREA_CB, furnaceBarPoints);
+        furnaceBarBox := GetTPABounds(furnaceBarPoints);
+        mouseBox(furnaceBarBox, MOUSE_RIGHT);
+        randomWait(300);
+        primaryOre := currentBar^.primaryOre.getAmount(true);
+        if (primaryOre <= 10) then
+          chooseOption('Smelt 10')
+        else
+        begin
+          chooseOption('Smelt X');
+          if  waitFindtext(textPoint, 'Enter amount', 'UpChars07', AREA_CB, 200, 1200) then
+            begin
+              randomWait(400);
+              typeSend(intToStr(primaryOre));
+            end;
+        end;
+        if ((waitFindtext(textPoint, 'You', 'CharsNPC07', AREA_CB, 200, 800))) then
+            coalBag.checkStatus();
+          currentBar^.waitWhileSmelting();
+          logger.status('Done Smelting');
+      end;
+    end;
+  end else
+end;
+
+procedure TBank.open();
+var
+  bankerPoint: TPoint;
+begin
+  if not (isBankOpen()) then
+  begin
+    self.walk();
+    if (self.banker.find(bankerPoint)) then
+    begin
+      fastClick(MOUSE_LEFT);
+      if didClick(True, 400) then
+      begin
+        if (waitFunc(@isBankOpen, 200, 5000)) then
+        begin
+          randomWait(500);
+          exit();
+        end;
+      end;
+    end else
+    begin
+      logger.fatal('Unable to open bank');
+      endScript();
+    end;
+  end;
+end;
+
+procedure TBank.fillCoalBag();
+var
+  numberOfOres: Integer;
+begin
+  if (coalBag.shouldUse) then
+  begin
+    self.open();
+    depositSlots([2..28]);
+    randomWait(500);
+    if not (withDrawitem(currentBar^.secondaryOre, (27 - coalBag.coalInside))) then
+    begin
+      logger.status('No more coal, logging out');
+      endScript();
+    end
+    closeInterface();
+    randomWait(500);
+    logger.debug('Coal before fill ' + toStr(coalBag.coalInside));
+    inc(coalBag.coalInside, currentBar^.secondaryOre.getAmount(true));
+    logger.debug('Coal after fill ' + toStr(coalBag.coalInside));
+    if (coalBag.coalInside > 27) then
+      coalBag.coalInside := 27;
+    coalBag.bag.interact(MOUSE_LEFT);
+    randomWait(1000);
+  end
+end;
+
+procedure TBank.bank();
+var
+  numberOfOres: Integer;
+  withdrawAmounts: TWithdraw;
+begin
+  self.open();
+  logger.status('timer thing ' + toStr(currentBar^.barTimer.timeElapsed));
+  if ( (coalBag.shouldUse) and (currentBar^.secondaryOre.getAmount(false) > 0) and (coalBag.coalInside <> 27) ) then
+  begin
+    logger.status('Filling bag');
+    self.fillCoalBag();
+    self.open();
+  end
+  if (coalBag.shouldUse) then
+      depositSlots([2..28])
+  else
+    quickDeposit('inv');
+  withdrawAmounts := currentBar^.numberToSmelt();
+  if (withdrawAmounts.itemOne = 0) then
+
+  randomWait(400);
+  withdrawItem(currentBar^.primaryOre, withdrawAmounts.itemOne);
+  if (currentBar^.secondaryOreAmount > 0) then
+    withdrawItem(currentBar^.secondaryOre, withdrawAmounts.itemTwo);
+  closeInterface();
+  randomWait(500);
+  progressReportCustom();
+end;
+
+procedure initWalker();
+begin
+  walker.init('WorldMap', OS_SMART.ID);
+  walker.anyAngle := True;
+  walker.walkStyle := wsSPS;
+  walker.skipClose := 10;
+end;
+
+procedure freeDTMs();
+var
+  i: Integer;
+begin
+  for i := 0 to high(ores) do
+  begin
+    FreeDTM(ores[i].DTM);
+  end;
+  for i := 0 to high(bars) do
+    FreeDTM(bars[i].bar.DTM);
+  walker.Free();
+  FreeDTM(coalBag.bag.DTM);
+end;
+
+procedure init();
+begin
+  initBars();
+  initLocations();
+  initWalker();
+  randomStartAdd := randomRangeCustom(50, 150);
+  randomEndAdd := randomRangeCustom(100, 300);
+  currentLocation := locations[0];
+  currentBar := @bars[STEEL_BAR];
+  if (currentBar^.secondaryOre.name <> ores[COAL].name) then
+    coalBag.shouldUse := false;
+  Me.Active := True;
+  Me.Name := '';
+  Me.Pass := '';
+  Me.Member := True;
+end
+
+procedure main();
+begin
+  if ( (customBreakHandler.Timer.timeElapsed() >= customBreakHandler.BreakAfter) and (USEBREAKS) ) then
+    breakHandlerCustom()
+  else if (not isLoggedIn()) then
+    tryLogin()
+  else if (isBankOpen()) then
+    closeInterface()
+  else if (currentBar^.canSmelt()) then
+    currentLocation.Smelt()
+  else
+    currentLocation.bank.bank();
+end;
+
+begin
+  initAL();
+  init();
+  myStats.Setup('55');
+  AddOnTerminate('freeDTMs');
+  tryLogin();
+  coalBag.checkStatus();
+  updatePrices();
+  logger.init('Mudda_Fudda''s AIO Smelter', 0);
+  customBreakHandler.RandomBreakTime();
+  inGameTimer.Start();
+  currentBar^.barTimer.start();
+  repeat
+    main();
+  until(False);
+end.
