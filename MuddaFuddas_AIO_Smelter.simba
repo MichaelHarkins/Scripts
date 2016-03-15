@@ -944,34 +944,37 @@ procedure checkVersion();
 var
   page, version : String;
 begin
-  warn('Checking version...', WT_CORE);
+  logger.status('Checking version...');
   try
-    Page := GetPage('https://raw.githubusercontent.com/MichaelHarkins/Scripts/master/%5BAeroLib%5D%20AIO%20Smelter.simba');
+    Page := PS_GetPage('https://raw.githubusercontent.com/MichaelHarkins/Scripts/master/[AeroLib] MuddaFuddas AIO Smelter.simba');
   except
-    warn('Error while checking version', WT_CORE);
+    logger.error('Error while getting version');
     Exit;
   end;
 
-  version := Between('VERSION =', ';//V', Page);
-
+  writeln(page);
+  version := Between('SCRIPT_VERSION := ', ';//V', Page);
+  writeln(version);
   if (version = '') then
   begin
-    warn('Error while checking version', WT_CORE);
+    logger.error('Error while checking version');
     Exit;
   end;
 
   if ((SCRIPT_VERSION >= strToInt(version))) then
   begin
-    warn('Currently up to date.', WT_CORE);
+    logger.status('Currently up to date.');
     exit;
   end else
   begin
-    warn('There is an update.', WT_CORE);
+    logger.status('There is an update.');
   end
+  endScript();
 end;
 
 procedure init();
 begin
+  checkVersion();
   initBars();
   initLocations();
   initWalker();
