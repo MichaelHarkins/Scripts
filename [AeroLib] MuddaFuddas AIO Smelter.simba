@@ -11,7 +11,7 @@ HAVE_COAL_BAG := True;
 HAVE_GOLD_SMITH_GAUNLETS := True;
 USEBREAKS = True;
 BANK_TAB = 9;
-VERSION = 1;
+SCRIPT_VERSION := 1;//V
 
 type TBar = record
   bar: TItem;
@@ -938,6 +938,36 @@ begin
     FreeDTM(bars[i].bar.DTM);
   walker.Free();
   FreeDTM(coalBag.bag.DTM);
+end;
+
+procedure checkVersion();
+var
+  page, version : String;
+begin
+  warn('Checking version...', WT_CORE);
+  try
+    Page := GetPage('https://raw.githubusercontent.com/MichaelHarkins/Scripts/master/%5BAeroLib%5D%20AIO%20Smelter.simba');
+  except
+    warn('Error while checking version', WT_CORE);
+    Exit;
+  end;
+
+  version := Between('VERSION =', ';//V', Page);
+
+  if (version = '') then
+  begin
+    warn('Error while checking version', WT_CORE);
+    Exit;
+  end;
+
+  if ((SCRIPT_VERSION >= strToInt(version))) then
+  begin
+    warn('Currently up to date.', WT_CORE);
+    exit;
+  end else
+  begin
+    warn('There is an update.', WT_CORE);
+  end
 end;
 
 procedure init();
