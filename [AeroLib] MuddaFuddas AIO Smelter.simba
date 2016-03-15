@@ -3,6 +3,16 @@ program RUNME;
 {$DEFINE WALKER}
 {$i AeroLib/AeroLib.Simba}
 
+
+const
+USERNAME := '';
+PASSWORD := '';
+HAVE_COAL_BAG := True;
+HAVE_GOLD_SMITH_GAUNLETS := True;
+USEBREAKS = True;
+BANK_TAB = 9;
+VERSION = 1;
+
 type TBar = record
   bar: TItem;
   primaryOre: TItem;
@@ -183,6 +193,7 @@ begin
 
    for Stat := 0 to High(Self.Stats) do
     begin
+      WriteLn(ToStr(Self.Stats[Stat].Value) + ' ' + Self.Stats[Stat].name);
       if (Self.Stats[Stat].Value > 0) then
         AddPostVariable(Client, Self.Stats[Stat].name, toStr(Min(Self.Stats[Stat].Value, 30000))); //Capped at 30000
     end;
@@ -269,16 +280,11 @@ const
   MITHRIL_BAR := 5;
   ADAMANTITE_BAR := 6;
   RUNITE_BAR := 7;
-  USE_COAL_BAG := True;
-  HAVE_GOLD_SMITH_GAUNLETS := True;
-
-  USEBREAKS = True;
 
   BREAK_AFTER_HOURS_MIN = 2;
   BREAK_AFTER_HOURS_MAX = 3;
   BREAK_FOR_MINUTES_MIN = 63;
   BREAK_FOR_MINUTES_MAX = 97;
-
 var
   ores: array[0..8] of TItem :=
   [['Copper ore', DTMFromString('mbQAAAHicY2VgYHgLxHeB+CUQfwXi30AcwwjBmUCcDMShQHy+3Bgow4iCWYEkOmbEgsEAALceCCI=')],
@@ -291,7 +297,7 @@ var
   ['Adamantite ore', DTMFromString('mbQAAAHicY2VgYBBggAAeIJYAYjkgZodiESDmg8r7pwQCSUYUzAok0TEjFgwGAHUgAa4=')],
   ['Runite ore', DTMFromString('mrAAAAHic42BgYNjBzMCwCoiXA/FmID4AxMeAeA+U38DIwFANxB1A3Aela4C4BIiLgTggqxRoCiNODDQCL2DGqxsBAOktCxk=')]];
 
-  coalBag: TCoalBag := [['Coal bag', DTMFromString('mggAAAHicY2NgYOBjgAApIBYHYgEgZoGKsQIxGxBzADEXEHMCcaCXF5BkxMCsDNgBpkoIhgAAfg4BdQ==')], USE_COAL_BAG, 0];
+  coalBag: TCoalBag := [['Coal bag', DTMFromString('mggAAAHicY2NgYOBjgAApIBYHYgEgZoGKsQIxGxBzADEXEHMCcaCXF5BkxMCsDNgBpkoIhgAAfg4BdQ==')], HAVE_COAL_BAG, 0];
 
   walker: TRSWalker;
   bars: array[0..7] of TBar;
@@ -305,7 +311,7 @@ var
   inGameTimer, totalBreakTimer: Timer;
   customBreakHandler: TBreakHandlerCustom;
   myStats: TStats;
-
+  smithingLevel: Integer;
 function randomRangeCustom(startTime: Integer; endTime: Integer): Integer;
 begin
   exit(randomStartAdd + randomRange(startTime, endTime) + randomEndAdd);
@@ -341,6 +347,7 @@ begin
   end;
   setAngle(ANGLE_HIGH);
   compassMovement(0, 360, False);
+  smithingLevel := getSkillCurrentLevel(SKILL_SMITHING);
 end;
 
 procedure TBar.log();
@@ -457,7 +464,7 @@ end;
 
 procedure initBars();
 begin
-  bars[BRONZE_BAR].bar := ['Copper bar',  DTMFromString('mbQAAAHicY2VgYOAFYmkgFgViHgZUwAGVZwdibyslIMmIglkZMAEjFgwGAFLOASA=')];
+  bars[BRONZE_BAR].bar := ['Bronze bar',  DTMFromString('mbQAAAHicY2VgYOAFYmkgFgViHgZUwAGVZwdibyslIMmIglkZMAEjFgwGAFLOASA=')];
   bars[BRONZE_BAR].primaryOre := ores[COPPER_ORE];
   bars[BRONZE_BAR].primaryOreAmount := 1;
   bars[BRONZE_BAR].secondaryOre := ores[TIN_ORE];
@@ -498,6 +505,7 @@ begin
   bars[STEEL_BAR].oresPerBar := 3;
   bars[STEEL_BAR].furnaceBar := createCol(8158599, 7, 0.26, 0.08);
   bars[STEEL_BAR].XP := 17.5;
+  bars[STEEL_BAR].statsID := '48';
   bars[STEEL_BAR].level := 30;
 
   bars[GOLD_BAR].bar := ['Gold bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSNzZIAVUzomAWBkzAiAWDAQD4LAZE')];
@@ -507,6 +515,7 @@ begin
   bars[GOLD_BAR].secondaryOreAmount := 0;
   bars[GOLD_BAR].oresPerBar := 1;
   bars[GOLD_BAR].furnaceBar := createCol(1146780, 16, 0.01, 0.21);
+  bars[GOLD_BAR].statsID := '49';
   bars[GOLD_BAR].level := 40;
   if (HAVE_GOLD_SMITH_GAUNLETS) then
     bars[GOLD_BAR].XP := 56.2
@@ -521,6 +530,7 @@ begin
   bars[MITHRIL_BAR].oresPerBar := 5;
   bars[MITHRIL_BAR].furnaceBar := createCol(5388600, 12, 0.05, 0.11);
   bars[MITHRIL_BAR].XP := 30;
+  bars[MITHRIL_BAR].statsID := '50';
   bars[MITHRIL_BAR].level := 50;
 
   bars[ADAMANTITE_BAR].bar := ['Adamantite bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSASkBQNWMKJiFARMwYsFgAADP7gWm')];
@@ -531,6 +541,7 @@ begin
   bars[ADAMANTITE_BAR].oresPerBar := 7;
   bars[ADAMANTITE_BAR].furnaceBar := createCol(3885115, 12, 0, 0.19);
   bars[ADAMANTITE_BAR].XP := 37.5;
+  bars[ADAMANTITE_BAR].statsID := '51';
   bars[ADAMANTITE_BAR].level := 70;
 
   bars[RUNITE_BAR].bar := ['Runite bar', DTMFromString('mbQAAAHicY2VgYMhhYmCoBOIiIM4E4gQgLmFkYCgF4hogrofSgbkVQNWMKJiFARMwYsFgAADcRwXY')];
@@ -541,16 +552,53 @@ begin
   bars[RUNITE_BAR].oresPerBar := 9;
   bars[RUNITE_BAR].furnaceBar := createCol(5656378, 14, 0.07, 0.15);
   bars[RUNITE_BAR].XP := 50;
+  bars[RUNITE_BAR].statsID := '52';
   bars[RUNITE_BAR].level := 85;
 end;
 
 procedure initLocations();
 begin
   locations[0].name := 'Edgeville';
-  locations[0].bank.banker.create('Edgeville Banker', ['booth'], [createCol(5660003, 6, 0.63, 0.79)], [createCol(606550, 3, 0.09, 1.09)], 50, 70, 70, 30);
+  locations[0].bank.banker.create('Edgeville Banker', ['booth'], [createCol(5660003, 6, 0.63, 0.79)], [createCol(606550, 3, 0.09, 1.09)], 50, 40, 40, 10);
   locations[0].bank.path := [Point(4193, 2469)];
   locations[0].furnace.furnace.create('Edgeville Furnace', ['Smelt'], [createCol(3031909, 5, 0.10, 0.32)], [createCol(7368824, 5, 0.37, 0.20)], 25, 30, 30, 30);
   locations[0].furnace.path := [Point(4242, 2452)];
+end;
+
+procedure TBank.open();
+var
+  bankerPoint: TPoint;
+  randomTime: Integer;
+  timer: Timer;
+begin
+  randomTime := randomRangeCustom(60000, 120000);
+  timer.start();
+  if not (isBankOpen()) then
+  begin
+    while (timer.timeElapsed < randomTime) do
+    begin
+      self.walk();
+      if (self.banker.find(bankerPoint)) then
+      begin
+        fastClick(MOUSE_LEFT);
+        if didClick(True, 400) then
+        begin
+          if (waitFunc(@isBankOpen, 200, 5000)) then
+          begin
+            randomWait(500);
+            if (getCurrentBankTab() <> BANK_TAB) then
+              begin
+              switchBankTab(BANK_TAB);
+              randomWait(500);
+              end;
+            exit();
+          end;
+        end;
+      end;
+    end;
+    logger.fatal('Unable to open bank');
+    endScript();
+  end;
 end;
 
 function TBar.numberToSmelt(): TWithdraw;
@@ -581,29 +629,34 @@ begin
     maxCanSmelt := primaryCanSmelt
   else
     maxCanSmelt := secondaryCanSmelt;
+
   if (maxCanSmelt = 0) then
-  begin
-    Result := [0, 0];
-  end;
-  Result := [maxCanSmelt, ((maxCanSmelt * self.secondaryOreAmount) - (coalBag.coalInside)) ];
+    Result := [0, 0]
+  else
+    Result := [maxCanSmelt, ((maxCanSmelt * self.secondaryOreAmount) - (coalBag.coalInside)) ];
 end;
 
-procedure switchOre();
+function switchOre(): TWithdraw
 var
   bar: Integer;
-  playerLevel: Integer;
 begin
-  playerLevel := getSkillCurrentLevel(SKILL_SMITHING);
-  for bar := 0 to high(bars) do
+  for bar := high(bars) downto 0 do
   begin
-    if ((playerLevel >= bars[bar].level) and (bars[bar].numberToSmelt().itemOne > 0)) then
+    if ((smithingLevel >= bars[bar].level) and (bars[bar].numberToSmelt().itemOne > 0)) then
     begin
+      currentBar^.barTimer.pause();
       currentBar := @bars[bar];
+      currentBar^.barTimer.start();
       logger.status('Switched to ' + currentBar^.bar.Name);
-      exit();
+      if ((HAVE_COAL_BAG) and (Pos(currentBar^.secondaryOre.name, ores[COAL].name) > 0)) then
+        coalBag.shouldUse := true
+      else
+        coalBag.shouldUse := false;
+      exit(bars[bar].numberToSmelt());
     end;
   end;
   logger.status('No more bars to smelt logging out');
+  endScript();
 end;
 
 procedure TCoalBag.checkStatus();
@@ -612,9 +665,25 @@ var
   numberOfCoal: Integer;
   lastChatLine: String;
   numbers: String;
+  coalBagPoint: TPoint;
 begin
   if (self.shouldUse) then
   begin
+    if not (self.bag.inInventory()) then
+    begin
+      currentLocation.bank.open();
+      quickDeposit('inv');
+      randomWait(500);
+      if (withdrawItem(self.bag, 1, ['Coal bag'])) then
+      begin
+        closeInterface();
+        randomWait(1000);
+      end else
+      begin
+        logger.fatal('Using coal bag, but coal bag is not in inventory or bank');
+        endScript();
+      end;
+    end
     if (self.bag.interact('Check')) then
     begin
 	    randomWait(1000);
@@ -780,39 +849,25 @@ begin
   end else
 end;
 
-procedure TBank.open();
-var
-  bankerPoint: TPoint;
-begin
-  if not (isBankOpen()) then
-  begin
-    self.walk();
-    if (self.banker.find(bankerPoint)) then
-    begin
-      fastClick(MOUSE_LEFT);
-      if didClick(True, 400) then
-      begin
-        if (waitFunc(@isBankOpen, 200, 5000)) then
-        begin
-          randomWait(500);
-          exit();
-        end;
-      end;
-    end else
-    begin
-      logger.fatal('Unable to open bank');
-      endScript();
-    end;
-  end;
-end;
-
 procedure TBank.fillCoalBag();
 var
   numberOfOres: Integer;
+  coalBagPoint: TPoint;
 begin
   if (coalBag.shouldUse) then
   begin
     self.open();
+    if not (coalBag.bag.inInventory()) then
+    begin
+      quickDeposit('inv');
+      randomWait(500);
+      if not (withdrawItem(coalBag.bag, 1, ['Coal bag'])) then
+      begin
+        logger.fatal('Using coal bag, but coal bag is not in inventory or bank');
+        endScript();
+      end;
+      randomWait(500);
+    end;
     depositSlots([2..28]);
     randomWait(500);
     if not (withDrawitem(currentBar^.secondaryOre, (27 - coalBag.coalInside))) then
@@ -838,7 +893,9 @@ var
   withdrawAmounts: TWithdraw;
 begin
   self.open();
-  logger.status('timer thing ' + toStr(currentBar^.barTimer.timeElapsed));
+  withdrawAmounts := currentBar^.numberToSmelt();
+  if (withdrawAmounts.itemOne = 0) then
+    switchOre();
   if ( (coalBag.shouldUse) and (currentBar^.secondaryOre.getAmount(false) > 0) and (coalBag.coalInside <> 27) ) then
   begin
     logger.status('Filling bag');
@@ -851,7 +908,7 @@ begin
     quickDeposit('inv');
   withdrawAmounts := currentBar^.numberToSmelt();
   if (withdrawAmounts.itemOne = 0) then
-
+    withdrawAmounts := switchOre();
   randomWait(400);
   withdrawItem(currentBar^.primaryOre, withdrawAmounts.itemOne);
   if (currentBar^.secondaryOreAmount > 0) then
@@ -891,12 +948,14 @@ begin
   randomStartAdd := randomRangeCustom(50, 150);
   randomEndAdd := randomRangeCustom(100, 300);
   currentLocation := locations[0];
-  currentBar := @bars[STEEL_BAR];
-  if (currentBar^.secondaryOre.name <> ores[COAL].name) then
+  currentBar := @bars[ADAMANTITE_BAR];
+  if ((HAVE_COAL_BAG) and (Pos(currentBar^.secondaryOre.name, ores[COAL].name) > 0)) then
+    coalBag.shouldUse := true
+  else
     coalBag.shouldUse := false;
   Me.Active := True;
-  Me.Name := '';
-  Me.Pass := '';
+  Me.Name := USERNAME;
+  Me.Pass := PASSWORD;
   Me.Member := True;
 end
 
@@ -920,8 +979,11 @@ begin
   myStats.Setup('55');
   AddOnTerminate('freeDTMs');
   tryLogin();
-  coalBag.checkStatus();
   updatePrices();
+    writeLn(coalBag.shouldUse);
+  smithingLevel := getSkillCurrentLevel(SKILL_SMITHING);
+  coalBag.checkStatus();
+  writeLn(coalBag.shouldUse);
   logger.init('Mudda_Fudda''s AIO Smelter', 0);
   customBreakHandler.RandomBreakTime();
   inGameTimer.Start();
