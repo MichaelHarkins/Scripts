@@ -1,4 +1,3 @@
-program RUNME;
 {$DEFINE SMART}
 {$DEFINE WALKER}
 {$i AeroLib/AeroLib.Simba}
@@ -10,7 +9,7 @@ HAVE_COAL_BAG := True;
 HAVE_GOLD_SMITH_GAUNLETS := True;
 USEBREAKS = True;
 BANK_TAB = 9;
-SCRIPT_VERSION := 1;//V
+SCRIPT_VERSION := 1;
 
 type TBar = record
   bar: TItem;
@@ -952,7 +951,7 @@ var
 begin
   logger.status('Checking version...');
   sock.Init();
-  sock.setURL('https://github.com/MichaelHarkins/Scripts/blob/master/MuddaFuddas_AIO_Smelter_Version.txt');
+  sock.setURL('https://raw.githubusercontent.com/MichaelHarkins/Scripts/master/MuddaFuddas_AIO_Smelter_Version.txt');
   sock.setSecurityPolicy(false, false, true);
   sock.setURLFollow(true);
   sock.setHeader('Content-Type', 'text/html');
@@ -965,7 +964,6 @@ begin
     logger.error('Error while checking version');
     Exit;
   end;
-
   if ((SCRIPT_VERSION >= strToInt(version))) then
   begin
     logger.status('Currently up to date.');
@@ -979,10 +977,10 @@ begin
     memMove(data.memory^, page[1], data.size);
     fileHandler := rewriteFile(AppPath + 'Scripts\MuddaFuddas_AIO_Smelter.simba', true);
     writeFileString(fileHandler, page);
+    closeFile(fileHandler);
     logger.status('Script has been updated. reopen the script');
     terminateScript();
-  end
-  endScript();
+  end;
 end;
 
 procedure init();
@@ -1020,16 +1018,17 @@ end;
 
 begin
   initAL();
+  checkVersion();
   init();
   myStats.Setup('55');
   AddOnTerminate('freeDTMs');
-  tryLogin();
   updatePrices();
+  tryLogin();
   smithingLevel := getSkillCurrentLevel(SKILL_SMITHING);
   coalBag.checkStatus();
-  logger.init('Mudda_Fudda''s AIO Smelter', 0);
+  logger.init('Mudda_Fudda''s AIO Smelter', 1);
   customBreakHandler.RandomBreakTime();
-  inGameTimer.Start();
+  inGameTimer.start();
   currentBar^.barTimer.start();
   repeat
     main();
