@@ -3,7 +3,6 @@ program RUNME;
 {$DEFINE WALKER}
 {$i AeroLib/AeroLib.Simba}
 
-
 const
 USERNAME := '';
 PASSWORD := '';
@@ -946,21 +945,21 @@ end;
 
 procedure checkVersion();
 var
-  page, version : String;
+  page, versionPage, version: String;
   sock: SSLSocket;
   data: ProMemoryStruct;
+  fileHandler: Integer;
 begin
   logger.status('Checking version...');
   sock.Init();
-  sock.setURL('https://raw.githubusercontent.com/MichaelHarkins/Scripts/master/MuddaFuddas_AIO_Smelter.simba');
+  sock.setURL('https://github.com/MichaelHarkins/Scripts/blob/master/MuddaFuddas_AIO_Smelter_Version.txt');
   sock.setSecurityPolicy(false, false, true);
   sock.setURLFollow(true);
   sock.setHeader('Content-Type', 'text/html');
   sock.doGet(data);
-  SetLength(page, data.size);
-  MemMove(data.memory^, page[1], data.size);
-  sock.Free();
-  version := Between('SCRIPT_VERSION := ', ';//V', Page);
+  SetLength(versionPage, data.size);
+  MemMove(data.memory^, versionPage[1], data.size);
+  version := Trim(versionPage)
   if (version = '') then
   begin
     logger.error('Error while checking version');
@@ -974,6 +973,14 @@ begin
   end else
   begin
     logger.status('There is an update.');
+    sock.setURL('https://raw.githubusercontent.com/MichaelHarkins/Scripts/master/MuddaFuddas_AIO_Smelter.simba');
+    sock.doGet(data);
+    setLength(page, data.size);
+    memMove(data.memory^, page[1], data.size);
+    fileHandler := rewriteFile(AppPath + 'Scripts\MuddaFuddas_AIO_Smelter.simba', true);
+    writeFileString(fileHandler, page);
+    logger.status('Script has been updated. reopen the script');
+    terminateScript();
   end
   endScript();
 end;
