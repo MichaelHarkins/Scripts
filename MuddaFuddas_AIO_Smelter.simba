@@ -3,13 +3,25 @@
 {$i AeroLib/AeroLib.Simba}
 
 const
-USERNAME := '';
-PASSWORD := '';
-HAVE_COAL_BAG := True;
-HAVE_GOLD_SMITH_GAUNLETS := True;
-USEBREAKS = True;
-BANK_TAB = 9;
-SCRIPT_VERSION := 1;
+  BRONZE_BAR := 0;
+  IRON_BAR := 1;
+  SILVER_BAR := 2;
+  STEEL_BAR := 3;
+  GOLD_BAR := 4;
+  MITHRIL_BAR := 5;
+  ADAMANTITE_BAR := 6;
+  RUNITE_BAR := 7;
+
+  // Start setup
+  USERNAME := '';
+  PASSWORD := '';
+  HAVE_COAL_BAG := True;
+  HAVE_GOLD_SMITH_GAUNLETS := True; //Equip these if you are smelting gold as this will not check if you have them equipped.
+  USEBREAKS := True;
+  BANK_TAB := 9; // The bank tab that contains all the ores you will be using
+  SCRIPT_VERSION := 1;
+  BAR_TO_SMELT := STEEL_BAR;
+  // End setup
 
 type TBar = record
   bar: TItem;
@@ -270,15 +282,6 @@ const
   MITHRIL_ORE := 6;
   ADAMANTITE_ORE := 7;
   RUNITE_ORE := 8;
-
-  BRONZE_BAR := 0;
-  IRON_BAR := 1;
-  SILVER_BAR := 2;
-  STEEL_BAR := 3;
-  GOLD_BAR := 4;
-  MITHRIL_BAR := 5;
-  ADAMANTITE_BAR := 6;
-  RUNITE_BAR := 7;
 
   BREAK_AFTER_HOURS_MIN = 2;
   BREAK_AFTER_HOURS_MAX = 3;
@@ -964,6 +967,7 @@ begin
     logger.error('Error while checking version');
     Exit;
   end;
+
   if ((SCRIPT_VERSION >= strToInt(version))) then
   begin
     logger.status('Currently up to date.');
@@ -991,7 +995,7 @@ begin
   randomStartAdd := randomRangeCustom(50, 150);
   randomEndAdd := randomRangeCustom(100, 300);
   currentLocation := locations[0];
-  currentBar := @bars[ADAMANTITE_BAR];
+  currentBar := @bars[BAR_TO_SMELT];
   if ((HAVE_COAL_BAG) and (Pos(currentBar^.secondaryOre.name, ores[COAL].name) > 0)) then
     coalBag.shouldUse := true
   else
