@@ -63,6 +63,7 @@ end;
 type TBank = record
   path: TPointArray;
   banker: TMSObject;
+  distanceMod: Integer;
 end;
 
 type TLocation = record
@@ -559,8 +560,9 @@ end;
 procedure initLocations();
 begin
   locations[0].name := 'Edgeville';
-  locations[0].bank.banker.create('Edgeville Banker', ['booth'], [createCol(5660003, 6, 0.63, 0.79)], [createCol(606550, 3, 0.09, 1.09)], 50, 40, 40, 10);
+  locations[0].bank.banker.create('Edgeville Banker', ['Bank Bank booth'], [createCol(5660003, 6, 0.63, 0.79)], [createCol(606550, 3, 0.09, 1.09)], 200, 40, 40, 20);
   locations[0].bank.path := [Point(4193, 2469)];
+  locations[0].bank.distanceMod := 10;
   locations[0].furnace.furnace.create('Edgeville Furnace', ['Smelt'], [createCol(3031909, 5, 0.10, 0.32)], [createCol(7368824, 5, 0.37, 0.20)], 25, 30, 30, 30);
   locations[0].furnace.path := [Point(4242, 2452)];
 end;
@@ -578,9 +580,10 @@ begin
     while (timer.timeElapsed < randomTime) do
     begin
       self.walk();
-      if (self.banker.find(bankerPoint)) then
+      if (self.banker.find(self.distanceMod, MSCP, bankerPoint)) then
       begin
-        fastClick(MOUSE_LEFT);
+        logger.status('Clicking bank');
+        mouse(bankerPoint, 3, 3, MOUSE_LEFT);
         if didClick(True, 400) then
         begin
           if (waitFunc(@isBankOpen, 200, 5000)) then
@@ -595,6 +598,7 @@ begin
           end;
         end;
       end;
+      logger.status('Didn''t open bank');
     end;
     logger.fatal('Unable to open bank');
     endScript();
@@ -943,18 +947,20 @@ end;
 procedure checkVersion();
 var
   page, version : String;
+  sock: SSLSocket;
+  data: ProMemoryStruct;
 begin
   logger.status('Checking version...');
-  try
-    Page := PS_GetPage('https://raw.githubusercontent.com/MichaelHarkins/Scripts/master/[AeroLib] MuddaFuddas AIO Smelter.simba');
-  except
-    logger.error('Error while getting version');
-    Exit;
-  end;
-
-  writeln(page);
+  sock.Init();
+  sock.setURL('https://raw.githubusercontent.com/MichaelHarkins/Scripts/master/MuddaFuddas_AIO_Smelter.simba');
+  sock.setSecurityPolicy(false, false, true);
+  sock.setURLFollow(true);
+  sock.setHeader('Content-Type', 'text/html');
+  sock.doGet(data);
+  SetLength(page, data.size);
+  MemMove(data.memory^, page[1], data.size);
+  sock.Free();
   version := Between('SCRIPT_VERSION := ', ';//V', Page);
-  writeln(version);
   if (version = '') then
   begin
     logger.error('Error while checking version');
@@ -974,7 +980,6 @@ end;
 
 procedure init();
 begin
-  checkVersion();
   initBars();
   initLocations();
   initWalker();
@@ -1013,10 +1018,8 @@ begin
   AddOnTerminate('freeDTMs');
   tryLogin();
   updatePrices();
-    writeLn(coalBag.shouldUse);
   smithingLevel := getSkillCurrentLevel(SKILL_SMITHING);
   coalBag.checkStatus();
-  writeLn(coalBag.shouldUse);
   logger.init('Mudda_Fudda''s AIO Smelter', 0);
   customBreakHandler.RandomBreakTime();
   inGameTimer.Start();
